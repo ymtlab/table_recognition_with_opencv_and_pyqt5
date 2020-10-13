@@ -72,7 +72,10 @@ class Item(object):
         return d
 
     def remove(self, row, count=1):
-        del self.__children__[row:row+count]
+        if count == 1:
+            del self.__children__[row]
+        else:
+            del self.__children__[row:row+count]
 
     def row(self):
         if self.__parent__:

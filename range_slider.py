@@ -10,8 +10,6 @@ class RangeSlider(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        #self.slider_changed = QtCore.pyqtSignal()
-
         self.first_position = 1
         self.second_position = 8
 
@@ -30,11 +28,11 @@ class RangeSlider(QtWidgets.QWidget):
             )
         )
 
-    def setMinimum(self, value):
-        self.style_option_slider.minimum = value
+    def setMinimum(self, minimum):
+        self.style_option_slider.minimum = minimum
 
-    def setMaximum(self, value):
-        self.style_option_slider.maximum = value
+    def setMaximum(self, maximum):
+        self.style_option_slider.maximum = maximum
 
     def setOrientation(self, value):
         self.orientation = value
