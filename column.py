@@ -22,6 +22,11 @@ class Column():
     def extend(self, columns):
         self.__data__.extend(columns)
 
+    def index(self, value):
+        if value in self.__data__:
+            return self.__data__.index(value)
+        return None
+        
     def insert(self, column, count=1):
         self.__data__[column:column] = [ '' for i in range(count) ]
 

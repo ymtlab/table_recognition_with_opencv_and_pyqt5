@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 import sys
+import subprocess
 from pathlib import Path
 from PyQt5 import QtWidgets, QtCore, QtGui
 
@@ -10,7 +11,8 @@ from model import Model
 from item import Item
 from delegate import Delegate
 from column import Column
-from table_recognition import recognition_table_from_image_file, crop_margin
+from table_recognition import recognition_table_from_image_file
+from poppler import Poppler
 
 class MainWindow(QtWidgets.QMainWindow):
     def __init__(self, app):
@@ -26,6 +28,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.ui.tableView.setModel(self.model)
         self.ui.tableView.setItemDelegate( Delegate() )
         self.ui.tableView.clicked.connect(self.tableview_clicked)
+        self.ui.tableView.customContextMenuRequested.connect(self.context_menu_tableview)
+        self.ui.tableView.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         
         self.ui.listView.setModel(self.model_2)
         self.ui.listView.setItemDelegate( Delegate() )
@@ -75,9 +79,19 @@ class MainWindow(QtWidgets.QMainWindow):
         menu.addAction('Delete', self.listview_delete_selected_item)
         menu.exec( self.focusWidget().mapToGlobal(point) )
 
+    def context_menu_tableview(self, point):
+        menu = QtWidgets.QMenu(self)
+        menu.addAction('Remove all items', self.remove_all_items)
+        menu.addAction('OCR selected pixmaps in tableview', self.ocr_selected_pixmaps_in_tableview)
+        menu.addAction('OCR all pixmaps in tableview', self.ocr_all_pixmaps_in_tableview)
+        menu.exec( self.focusWidget().mapToGlobal(point) )
+
+    def remove_all_items(self):
+        self.model.removeRows(0, self.model.rowCount())
+
     def open_files(self):
 
-        return_value = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files', '', 'Image Files (*.png)')
+        return_value = QtWidgets.QFileDialog.getOpenFileNames(self, 'Open files', '', 'Support Files (*.png *.pdf)')
         if len(return_value[0]) == 0:
             return
         files = [ Path(f) for f in return_value[0] ]
@@ -87,8 +101,14 @@ class MainWindow(QtWidgets.QMainWindow):
             item = self.model.root().child(r)
             item.data('File name', f.name)
             item.data('file_path', f)
-            item.data('qimage', QtGui.QImage( str(f) ) )
-            item.data('qpixmap', QtGui.QPixmap( str(f) ) )
+
+            if f.suffix == '.pdf':
+                output_path = Poppler().pdftocairo(f, Path('__temp__.png'), 300)
+                item.data('qimage', QtGui.QImage(output_path))
+                item.data('qpixmap', QtGui.QPixmap(output_path))
+            else:
+                item.data('qimage', QtGui.QImage( str(f) ) )
+                item.data('qpixmap', QtGui.QPixmap( str(f) ) )
             h, w = item.data('qpixmap').rect().height(), item.data('qpixmap').rect().width()
             item.data('Resolution', str(h) + 'x' + str(w) )
 
@@ -96,6 +116,10 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_item = self.tableview_selected_item()
         if selected_item is None:
             return
+        
+        self.ui.toolButton_6.toggle()
+        self.ui.toolButton_7.toggle()
+
         self.recognition_file( selected_item.row() )
         self.graphics_view_update()
         self.ui.graphicsView.fitInView(self.ui.graphicsView.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
@@ -191,6 +215,26 @@ class MainWindow(QtWidgets.QMainWindow):
             rect_items_index = selected_item.data('rect_items_index')
             scene.addItem( selected_item.data('rect_items')[rect_items_index] )
 
+    def cv2_image_to_qpixmap(self, cv2_image):
+        '''
+        h, w = cv2_image.shape[:2]
+
+        if len(cv2_image.shape) == 3:
+            qimg_format = QtGui.QImage.Format_RGB888
+        else:
+            qimg_format = QtGui.QImage.Format_Indexed8
+
+        qimage = QtGui.QImage(cv2_image.flatten(), w, h, qimg_format)
+        qpixmap = QtGui.QPixmap(qimage)
+        return qpixmap
+        '''
+        import cv2
+        h, w = cv2_image.shape[:2]
+        qimg = QtGui.QImage(cv2_image.flatten(), w, h, QtGui.QImage.Format_RGB888)
+        cv_rgb = cv2.cvtColor(cv2_image, cv2.COLOR_BGR2RGB)
+        qimg = QtGui.QImage(cv_rgb.flatten(), w, h, QtGui.QImage.Format_RGB888)
+        return QtGui.QPixmap.fromImage(qimg)
+
     def listview_update(self, model_item):
 
         rect_items = model_item.data('rect_items')
@@ -268,9 +312,11 @@ class MainWindow(QtWidgets.QMainWindow):
         selected_item = self.tableview_selected_item()
         if selected_item is None:
             return
+
         rect_items = selected_item.data('rect_alpha_items_2')
         if rect_items is None or len(rect_items) == 0:
             return
+
         rect_counts = len(rect_items)
         qpixmap = selected_item.data('qpixmap')
 
@@ -278,6 +324,17 @@ class MainWindow(QtWidgets.QMainWindow):
             r = rect_item.rect()
             rect = QtCore.QRect( int(r.x()), int(r.y()), int(r.width()), int(r.height()) )
             cropped_qpixmap = qpixmap.copy(rect)
+
+            margin = 20
+            p = QtGui.QPixmap( cropped_qpixmap.width() + margin * 2, cropped_qpixmap.height() + margin * 2 )
+
+            painter = QtGui.QPainter(p)
+            painter.setBrush( QtCore.Qt.white )
+            painter.drawRect( 0, 0, p.width(), p.height() )
+            painter.drawPixmap(margin, margin, cropped_qpixmap)
+
+            cropped_qpixmap = p
+
             selected_item.data('Rect'+str(i), cropped_qpixmap)
         
         column_count = self.model.columnCount()
@@ -288,17 +345,63 @@ class MainWindow(QtWidgets.QMainWindow):
         for c, column in enumerate(append_columns):
             self.model.setHeaderData(column_count + c, QtCore.Qt.Horizontal, column)
 
-    def cv2_image_to_qpixmap(self, cv2_image):
-        h, w = cv2_image.shape[:2]
+    def ocr_all_pixmaps_in_tableview(self):
+        row_count = self.model.rowCount()
+        column_count = self.model.columns().count()
+        for r in range(row_count)[::-1]:
+            item = self.model.root().child(r)
+            for c in range(column_count)[::-1]:
+                index = self.model.createIndex(r, c, item)
+                text = self.tesseract_ocr_model_data(index)
+                self.input_ocr_text(index, text)
+                print(r, c, text)
 
-        if len(cv2_image.shape) == 3:
-            qimg_format = QtGui.QImage.Format_RGB888
+    def ocr_selected_pixmaps_in_tableview(self):
+        indexes = self.ui.tableView.selectedIndexes()
+        for index in indexes:
+            text = self.tesseract_ocr_model_data(index)
+            self.input_ocr_text(index, text)
+
+    def input_ocr_text(self, index, text):
+
+        column = self.model.headerData(index.column(), QtCore.Qt.Horizontal)
+        column_ocr_text = column.replace('Rect', 'OCR')
+        column_ocr_text_index = self.model.columns().index(column_ocr_text)
+
+        if column_ocr_text_index is None:
+            c = index.column() + 1
+            self.model.insertColumn(c)
+            self.model.setHeaderData(c, QtCore.Qt.Horizontal, column_ocr_text)
         else:
-            qimg_format = QtGui.QImage.Format_Indexed8
+            c = column_ocr_text_index
+        
+        r = index.row()
+        item = self.model.root().child(r)
+        self.model.setData( self.model.createIndex(r, c, item), text )
 
-        qimage = QtGui.QImage(cv2_image.flatten(), w, h, qimg_format)
-        qpixmap = QtGui.QPixmap(qimage)
-        return qpixmap
+    def tesseract_ocr_model_data(self, index):
+        data = self.model.data(index)
+
+        if not type(data) is QtGui.QPixmap:
+            return None
+
+        temp_file = Path('__temp__.png')
+        data.save( str(temp_file) )
+
+        process = subprocess.run(
+            ['Tesseract-OCR/tesseract.exe', str(temp_file), temp_file.stem], 
+            stdout = subprocess.PIPE, stderr = subprocess.PIPE
+        )
+        
+        text_file = Path('__temp__.txt')
+
+        with open(text_file) as f:
+            txt = f.read().strip()
+        
+        text_file.unlink()
+        temp_file.unlink()
+
+        return txt
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
