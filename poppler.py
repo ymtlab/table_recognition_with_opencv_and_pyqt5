@@ -11,11 +11,13 @@ class Poppler():
     def pdftocairo(self, input_path, output_path, resolution):
         suffix = '-'+str(output_path.suffix).replace('.', '')
         cmd = [str(self.pdftocairo_path), suffix, '-r', str(resolution), str(input_path), str(output_path.stem)]
-        r = self.subprocess_run(cmd)
-        output = str(output_path.stem) + '-1.png'
-        return output
+        return_value = self.subprocess_run(cmd)
+        if Path(output_path.stem + '.png').exists():
+            Path(output_path.stem + '.png').unlink()
+        Path(output_path.stem + '-1.png').rename(output_path.stem + '.png')
+        return Path(output_path.stem + '.png')
 
     def subprocess_run(self, cmd):
-        r = subprocess.run(cmd, stdout=subprocess.PIPE)
-        r = r.stdout.decode('cp932')
+        return_value = subprocess.run(cmd, stdout=subprocess.PIPE)
+        r = return_value.stdout.decode('cp932')
         return r
