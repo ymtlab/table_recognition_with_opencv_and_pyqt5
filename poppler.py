@@ -5,8 +5,11 @@ import chardet
 
 class Poppler():
     def __init__(self):
-        self.pdftocairo_path = Path('poppler/pdftocairo.exe')
-        self.pdfinfo_path = Path('poppler/pdfinfo.exe')
+        pdftocairo = list(Path('poppler/').glob('**/pdftocairo.exe'))
+        if len(pdftocairo) > 0:
+            self.pdftocairo_path = pdftocairo[0]
+        else:
+            self.pdftocairo_path = None
         
     def pdftocairo(self, input_path, output_path, resolution):
         suffix = '-'+str(output_path.suffix).replace('.', '')

@@ -20,16 +20,15 @@ class ImageView(QtWidgets.QWidget):
         self.ui.listView.setItemDelegate( Delegate() )
         self.ui.listView.clicked.connect(self.listview_clicked)
         self.ui.listView.customContextMenuRequested.connect(self.context_menu)
+        self.ui.listView.keyReleaseEvent = self.lsitview_keyReleaseEvent
 
         self.ui.horizontalSlider.valueChanged.connect(self.slider_changed)
         self.ui.horizontalSlider_2.valueChanged.connect(self.slider_changed)
+        self.ui.horizontalSlider_3.valueChanged.connect(self.slider_changed)
 
-        self.ui.lineEdit.returnPressed.connect(
-            lambda : self.lineedit_changed(self.ui.horizontalSlider, self.ui.lineEdit)
-        )
-        self.ui.lineEdit_2.returnPressed.connect(
-            lambda : self.lineedit_changed(self.ui.horizontalSlider_2, self.ui.lineEdit_2)
-        )
+        self.ui.lineEdit.returnPressed.connect(self.lineedit_changed)
+        self.ui.lineEdit_2.returnPressed.connect(self.lineedit_changed)
+        self.ui.lineEdit_3.returnPressed.connect(self.lineedit_changed)
 
         self.ui.graphicsView.setScene( QtWidgets.QGraphicsScene(self.ui.graphicsView) )
 
@@ -55,18 +54,20 @@ class ImageView(QtWidgets.QWidget):
             
             for key in ['rects', 'crops']:
                 del tableview_item.data(key)[row]
-            
-            if row - 1 < 0:
-                r = 0
-            else:
-                r = row - 1
-            
-            tableview_item.data('rects_index', r)
+        
+        if len(selected_indexes) > 0:
+            tableview_item.data('rects_indexs', [0])
 
         self.graphics_view_update()
-
-    def lineedit_changed(self, slider, lineedit):
-        slider.setValue( int(lineedit.text()) ) 
+        
+    def lineedit_changed(self):
+        widget = self.sender()
+        if widget is self.ui.lineEdit:
+            self.ui.horizontalSlider.setValue( int(self.ui.lineEdit.text()) ) 
+        if widget is self.ui.lineEdit_2:
+            self.ui.horizontalSlider_2.setValue( int(self.ui.lineEdit_2.text()) ) 
+        if widget is self.ui.lineEdit_3:
+            self.ui.horizontalSlider_3.setValue( int(self.ui.lineEdit_3.text()) ) 
 
     def listview_clicked(self, index):
         mainwindow = self.mainwindow(self)
@@ -77,8 +78,18 @@ class ImageView(QtWidgets.QWidget):
         if tableview_item is None:
             return
         
-        tableview_item.data('rects_index', self.ui.listView.selectedIndexes()[0].row())
+        rows = [ i.row() for i in self.ui.listView.selectedIndexes() ]
+        tableview_item.data('rects_indexs', rows)
         self.graphics_view_update()
+
+    def lsitview_keyReleaseEvent(self, event):
+        if event.key() == QtCore.Qt.Key_Delete:
+            self.delete_selected_item()
+        if event.key() == QtCore.Qt.Key_Down:
+            self.listview_clicked( self.ui.listView.selectedIndexes()[0] )
+        if event.key() == QtCore.Qt.Key_Up:
+            self.listview_clicked( self.ui.listView.selectedIndexes()[0] )
+        super(QtWidgets.QListView, self.ui.listView).keyReleaseEvent(event)
 
     def mainwindow(self, widget):
         if widget is None:
@@ -86,6 +97,9 @@ class ImageView(QtWidgets.QWidget):
         if widget.inherits('QMainWindow'):
             return widget
         return self.mainwindow( widget.parent() )
+
+    def graphics_view_fit(self):
+        self.ui.graphicsView.fitInView(self.ui.graphicsView.scene().sceneRect(), QtCore.Qt.KeepAspectRatio)
 
     def graphics_view_update(self):
         mainwindow = self.mainwindow(self)
@@ -118,8 +132,14 @@ class ImageView(QtWidgets.QWidget):
                 scene.addItem( self.rect_item(crop, 0, 255, 0, 200, 2) )
 
         if not rects is None and len(rects) > 0:
-            rect = rects[ tableview_item.data('rects_index') ]
-            scene.addItem( self.rect_item(rect, 255, 0, 0, 255, 4) )
+            indexes = tableview_item.data('rects_indexs')
+            if indexes is None:
+                return
+            for r in indexes:
+                if r >= len(rects):
+                    continue
+                rect = rects[r]
+                scene.addItem( self.rect_item(rect, 255, 0, 0, 255, 4) )
 
     def recognize(self):
         mainwindow = self.mainwindow(self)
@@ -131,14 +151,16 @@ class ImageView(QtWidgets.QWidget):
             return
         
         area_range = ( self.ui.horizontalSlider.value(), self.ui.horizontalSlider_2.value() )
+        dilate_size = ( self.ui.horizontalSlider_3.value(), self.ui.horizontalSlider_3.value() )
         image_process = ImageProcess( tableview_item.data('qpixmap') )
-        edge, rects, crops = image_process.recognize_table(area_range)
+        edge, rects, crops = image_process.recognize_table(area_range, dilate_size)
         
         tableview_item.data('rects_index', 0)
         tableview_item.data('edge', edge)
         tableview_item.data('rects', rects)
         tableview_item.data('crops', crops)
 
+        self.update_rows()
         self.graphics_view_update()
 
     def rect_item(self, rect, r, g, b, a, pen_width):
@@ -157,12 +179,26 @@ class ImageView(QtWidgets.QWidget):
         self.ui.listView.setCurrentIndex(index)
 
     def slider_changed(self):
-        self.ui.lineEdit.setText( str(self.ui.horizontalSlider.value()) )
-        self.ui.lineEdit_2.setText( str(self.ui.horizontalSlider_2.value()) )
+        widget = self.sender()
+        if widget is self.ui.horizontalSlider:
+            self.ui.lineEdit.setText( str(self.ui.horizontalSlider.value()) )
+        if widget is self.ui.horizontalSlider_2:
+            self.ui.lineEdit_2.setText( str(self.ui.horizontalSlider_2.value()) )
+        if widget is self.ui.horizontalSlider_3:
+            self.ui.lineEdit_3.setText( str(self.ui.horizontalSlider_3.value()) )
         self.recognize()
         self.graphics_view_update()
 
-    def update_rows(self, tableview_item):
+    def update_rows(self):
+        
+        mainwindow = self.mainwindow(self)
+        if mainwindow is None:
+            return
+
+        tableview_item = mainwindow.tableview_selected_item()
+        if tableview_item is None:
+            return
+        
         rects = tableview_item.data('rects')
         if rects is None:
             return

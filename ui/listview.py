@@ -10,21 +10,7 @@ class ListView(QtWidgets.QListView):
         menu = QtWidgets.QMenu(self)
         menu.addAction('Delete', self.delete_selected_item)
         menu.exec( self.focusWidget().mapToGlobal(point) )
-
-    def update_rows(self, tableview_item):
-        rect_items = tableview_item.data('rect_items')
-        if rect_items is None:
-            return
-
-        if self.model().rowCount() > 0:
-            self.model().removeRows(0, self.model().rowCount())
-
-        self.model().insertRows( 0, len(rect_items) )
-        children = self.model().root().children()
-        for r, (rect_item, list_item) in enumerate(zip(rect_items, children)):
-            list_item.data('column', 'Rect'+str(r))
-            list_item.data('rect_item', rect_item)
-
+        
     def set_current_index(self, row):
         if self.model().rowCount() == 0:
             return

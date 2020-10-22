@@ -8,40 +8,24 @@ class ImageProcess(object):
     def __init__(self, data):
         self.data = self.load_data(data)
         
-    def edge_image(self, size=(6, 6)):
-        gray = cv2.cvtColor(self.data, cv2.COLOR_BGR2GRAY)
-        edge = cv2.Canny(gray, 1, 100, apertureSize=3)
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size)
-        edge = cv2.dilate(edge, kernel)
-        return edge
-
     def cv_to_pixmap(self, cv_image):
         shape_size = len(cv_image.shape)
         if shape_size == 2:
-            height, width = cv_image.shape
-            image = QtGui.QImage(cv_image.data, width, height, QtGui.QImage.Format_Grayscale8)
+            rgb = cv2.cvtColor(cv_image, cv2.COLOR_GRAY2RGB)
         elif shape_size == 3:
-            height, width, bytesPerComponent = cv_image.shape
-            bytesPerLine = bytesPerComponent * width
-            cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB, cv_image)
-            image = QtGui.QImage(cv_image.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888)
+            rgb = cv2.cvtColor(cv_image, cv2.COLOR_BGR2RGB)
+        height, width, bytesPerComponent = rgb.shape
+        bytesPerLine = bytesPerComponent * width
+        image = QtGui.QImage(rgb.data, width, height, bytesPerLine, QtGui.QImage.Format_RGB888)
         qpixmap = QtGui.QPixmap.fromImage(image)
         return qpixmap
 
-    def qimage_to_cv(self, qimage):
-        w, h, d = qimage.size().width(), qimage.size().height(), qimage.depth()
-        bytes_ = qimage.bits().asstring(w * h * d // 8)
-        arr = np.frombuffer(bytes_, dtype=np.uint8).reshape((h, w, d // 8))
-        return arr
-
-    def load_data(self, data):
-        data_type = type(data)
-
-        if data_type is str or data_type is WindowsPath:
-            return cv2.imread( str(data) )
-
-        if data_type is QtGui.QPixmap:
-            return self.qimage_to_cv( data.toImage() )
+    def edge_image(self, size):
+        gray = cv2.cvtColor(self.data, cv2.COLOR_BGR2GRAY)
+        edge = cv2.Canny(gray, 1, 100, apertureSize=3)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, size)
+        dilate = cv2.dilate(edge, kernel)
+        return dilate
 
     def edge_to_rects(self, edge, area_range):
         contours, hierarchy = cv2.findContours(edge, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
@@ -57,6 +41,9 @@ class ImageProcess(object):
                 p1, p3 = curve[0][0], curve[2][0]
                 x, y, w, h = p1[0], p1[1], p3[0] - p1[0], p3[1] - p1[1]
                 rect =  [x, y, w, h]
+
+                if False in [ False for r in rect if r < 0 ]:
+                    continue
                         
                 if self.same_rect_is_in_rects(rect, rects, 10):
                     continue
@@ -67,23 +54,27 @@ class ImageProcess(object):
 
         return rects
 
-    def recognize_table(self, area_range=(10, 1000)):
-        edge = self.edge_image()
+    def load_data(self, data):
+        data_type = type(data)
+
+        if data_type is str or data_type is WindowsPath:
+            return cv2.imread( str(data) )
+
+        if data_type is QtGui.QPixmap:
+            return self.qimage_to_cv( data.toImage() )
+
+    def qimage_to_cv(self, qimage):
+        w, h, d = qimage.size().width(), qimage.size().height(), qimage.depth()
+        bytes_ = qimage.bits().asstring(w * h * d // 8)
+        arr = np.frombuffer(bytes_, dtype=np.uint8).reshape((h, w, d // 8))
+        return arr
+
+    def recognize_table(self, area_range=(10, 1000), dilate_size=(6, 6)):
+        edge = self.edge_image(dilate_size)
         rects = self.edge_to_rects(edge, area_range)
         crops = self.rects_to_crops(rects)
         edge = self.cv_to_pixmap(edge)
         return edge, rects, crops
-
-    def same_rect_is_in_rects(self, rect1, rects, tolerance=5):
-        for rect2 in rects:
-            frag = True
-            for r1, r2 in zip(rect1, rect2):
-                if not r2 - tolerance < r1 < r2 + tolerance:
-                    frag = False
-                    break
-            if frag:
-                return True
-        return False
 
     def rects_to_crops(self, rects, margin=10):
         crops = []
@@ -96,6 +87,9 @@ class ImageProcess(object):
             contours = cv2.findContours(threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)[0]
 
             rects_in_cropped = [ cv2.boundingRect(contour) for contour in contours[1:] ]
+
+            if len(rects_in_cropped) == 0:
+                continue
 
             x1 = min([ r[0] for r in rects_in_cropped ]) - margin
             y1 = min([ r[1] for r in rects_in_cropped ]) - margin
@@ -114,3 +108,14 @@ class ImageProcess(object):
             crops.append([x + x1, y + y1, x2 - x1, y2 - y1])
 
         return crops
+
+    def same_rect_is_in_rects(self, rect1, rects, tolerance=5):
+        for rect2 in rects:
+            frag = True
+            for r1, r2 in zip(rect1, rect2):
+                if not r2 - tolerance < r1 < r2 + tolerance:
+                    frag = False
+                    break
+            if frag:
+                return True
+        return False

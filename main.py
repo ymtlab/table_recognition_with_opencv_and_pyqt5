@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 import sys
 from PyQt5 import QtWidgets
-
-from ui.mainwindow import MainWindow
+from ui import MainWindow
 
 def main():
     app = QtWidgets.QApplication(sys.argv)
